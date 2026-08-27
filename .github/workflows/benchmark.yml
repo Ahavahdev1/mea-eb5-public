@@ -54,7 +54,7 @@ jobs:
       BENCHMARK_SEED: "0"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-python@39f1496fbf423b797c14027e6cf6d3f4f6d71a01 # v5.2.0
+      - uses: actions/setup-python@f677139bbe7f9c59b41e40162b753c062f5d49a3 # v5.2.0
         with:
           python-version: "3.12"
           cache: pip
@@ -96,7 +96,7 @@ jobs:
       BENCHMARK_SEED: ${{ matrix.seed }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-python@39f1496fbf423b797c14027e6cf6d3f4f6d71a01 # v5.2.0
+      - uses: actions/setup-python@f677139bbe7f9c59b41e40162b753c062f5d49a3 # v5.2.0
         with:
           python-version: "3.12"
           cache: pip
