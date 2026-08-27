@@ -1,0 +1,96 @@
+name: Private grading
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repository:
+        description: "Owner/repository containing the benchmark run"
+        required: true
+      source_run_id:
+        description: "GitHub Actions run ID containing attempt artifacts"
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: grade-${{ inputs.source_repository }}-${{ inputs.source_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  grade:
+    environment: private-grader
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@39f1496fbf423b797c14027e6cf6d3f4f6d71a01 # v5.2.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install private evaluator
+        run: python -m pip install --disable-pip-version-check '.[dev]'
+
+      - name: Build private grader before receiving untrusted artifacts
+        run: |
+          docker build --file Dockerfile.grader --tag "mea-eb5-private-grader:${GITHUB_SHA}" .
+          docker image inspect --format '{{.Id}}' "mea-eb5-private-grader:${GITHUB_SHA}" \
+            > grader-image-id.txt
+
+      - name: Download attempt archives from the public runner
+        uses: actions/download-artifact@cc203385981b70ca67e1cc39263f7ee061dd0dc6 # v4.1.9
+        with:
+          repository: ${{ inputs.source_repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.ATTEMPT_READ_TOKEN }}
+          pattern: attempt-*
+          merge-multiple: true
+          path: incoming
+
+      - name: Verify, extract, and grade every run
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runs evaluated
+          archive_count=0
+          for archive in incoming/attempt-*.tar.gz; do
+            test -f "$archive" || continue
+            archive_count=$((archive_count + 1))
+            (cd incoming && shasum -a 256 -c "$(basename "$archive").sha256")
+            python scripts/extract_attempt.py "$archive" runs
+          done
+          test "$archive_count" -gt 0
+          mkdir -p isolated-runs
+          for manifest in runs/*/manifest.json; do
+            run_id=$(basename "$(dirname "$manifest")")
+            mv "runs/$run_id" "isolated-runs/$run_id"
+            docker run --rm \
+              --network none \
+              --read-only \
+              --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+              --cap-drop ALL \
+              --security-opt no-new-privileges \
+              --pids-limit 256 \
+              --cpus 2 \
+              --memory 4g \
+              --user "$(id -u):$(id -g)" \
+              --volume "$PWD/isolated-runs:/runs:rw" \
+              "mea-eb5-private-grader:${GITHUB_SHA}" \
+              grade "$run_id" --runs-dir /runs --challenges-dir /app/challenges
+            mv "isolated-runs/$run_id" "runs/$run_id"
+            mkdir -p "evaluated/$run_id"
+            cp "runs/$run_id/manifest.json" "evaluated/$run_id/manifest.json"
+            cp "runs/$run_id/score.json" "evaluated/$run_id/score.json"
+          done
+
+      - name: Upload evaluated public-safe bundle
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        with:
+          name: evaluated-${{ inputs.source_run_id }}
+          path: evaluated/
+          if-no-files-found: error
+          retention-days: 90

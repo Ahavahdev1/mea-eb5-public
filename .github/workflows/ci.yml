@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@39f1496fbf423b797c14027e6cf6d3f4f6d71a01 # v5.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Validate challenge schemas
+        run: python -m mea_eb5.cli validate challenges
+
+      - name: Security audit
+        run: pip-audit --desc
+
+      - name: Noop smoke run
+        run: python -m mea_eb5.cli run --challenge 01_novel_repair --adapter noop --seeds 1
