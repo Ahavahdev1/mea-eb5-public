@@ -1,6 +1,9 @@
 kind: cli
 image: "ahavah/mea@sha256:8b63b49e0bad3c879ed82ddc8bfe97749808dc6de3c2e8a9160dbbade81dd4a5"
-command: []
+command:
+  - "python"
+  - "/opt/mea/cli.py"
+entrypoint: []
 cpu: 2
 memory: "4g"
 pids: 256
