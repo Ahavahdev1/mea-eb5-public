@@ -1,0 +1,20 @@
+import os
+import subprocess
+file_to_modify = "fixture/tests/test_public.py"
+directory = "C:\\MEAFractalQuantic2.0 diff benchmark ok\\mea-eb5-public"
+with open(os.path.join(directory, file_to_modify), 'r') as file:
+    lines = file.readlines()
+modified_lines = []
+for line in lines:
+    if "row['" in line:
+        key_start = line.index("row['") + len("row['")
+        key_end = line.index("']")
+        key = line[key_start:key_end]
+        modified_line = line[:key_start] + f'row.get("{key}")' + line[key_end:]
+        modified_lines.append(modified_line)
+    else:
+        modified_lines.append(line)
+with open(os.path.join(directory, file_to_modify), 'w') as file:
+    file.writelines(modified_lines)
+os.chdir(directory)
+subprocess.run(["pytest"], check=True)
