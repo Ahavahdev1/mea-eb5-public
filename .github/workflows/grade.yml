@@ -42,7 +42,7 @@ jobs:
             > grader-image-id.txt
 
       - name: Download attempt archives from the public runner
-        uses: actions/download-artifact@cc203385981b70ca67e1cc39263f7ee061dd0dc6 # v4.1.9
+        uses: actions/download-artifact@v4
         with:
           repository: ${{ inputs.source_repository }}
           run-id: ${{ inputs.source_run_id }}
