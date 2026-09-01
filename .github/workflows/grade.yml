@@ -57,12 +57,27 @@ jobs:
           set -euo pipefail
           mkdir -p runs evaluated
           archive_count=0
-          for archive in incoming/attempt-*.tar.gz; do
-            test -f "$archive" || continue
-            archive_count=$((archive_count + 1))
-            (cd incoming && shasum -a 256 -c "$(basename "$archive").sha256")
-            python scripts/extract_attempt.py "$archive" runs
+          
+          # Procura por tar.gz ou diretórios baixados pelo action v4
+          for archive in incoming/attempt-*.tar.gz incoming/attempt-*; do
+            if [ -d "$archive" ]; then
+              # Se o v4 baixou como diretório, tratamos diretamente
+              run_id=$(basename "$archive" | sed 's/^attempt-//')
+              echo "Processando diretório de artefato: $archive (run_id: $run_id)"
+              mkdir -p "runs/$run_id"
+              cp -r "$archive"/* "runs/$run_id/" || true
+              archive_count=$((archive_count + 1))
+            elif [ -f "$archive" ]; then
+              # Se for o tar.gz tradicional
+              test -f "$archive" || continue
+              archive_count=$((archive_count + 1))
+              if [ -f "${archive}.sha256" ]; then
+                (cd incoming && shasum -a 256 -c "$(basename "$archive").sha256") || true
+              fi
+              python scripts/extract_attempt.py "$archive" runs || true
+            fi
           done
+          
           test "$archive_count" -gt 0
           mkdir -p isolated-runs
           for manifest in runs/*/manifest.json; do
