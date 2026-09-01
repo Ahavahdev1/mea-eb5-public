@@ -49,7 +49,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           merge-multiple: true
           path: incoming
-        continue-on-error: true
 
       - name: Verify, extract, and grade every run
         shell: bash
@@ -57,53 +56,31 @@ jobs:
           set -euo pipefail
           mkdir -p runs evaluated isolated-runs
           
-          # Se o download veio vazio, cria um manifesto completo com a chave config exigida pelo validador
-          if [ -z "$(ls -A incoming 2>/dev/null)" ]; then
-            echo "Nenhum artefato baixado via token. Gerando pacote de evidencia estruturado para release ID ${{ inputs.source_run_id }}..."
-            mkdir -p "runs/release-success-run"
-            
-            # Cria o manifest.json incluindo o bloco 'config' exigido pelo schema
-            cat << 'EOF' > "runs/release-success-run/manifest.json"
-            {
-              "run_id": "release-success-run",
-              "challenge": "01_novel_repair",
-              "seed": 0,
-              "timestamp": "2026-09-01T00:00:00Z",
-              "status": "PASSED",
-              "grader_provenance": "INDEPENDENT",
-              "config": {
-                "challenge": "01_novel_repair",
-                "seed": 0,
-                "timeout_seconds": 300
-              },
-              "artifacts": {}
-            }
-            EOF
-            
-            echo '{"status": "PASSED", "grader_provenance": "INDEPENDENT", "score": 1.0}' > "runs/release-success-run/score.json"
-          else
-            shopt -s nullglob
-            for item in incoming/*; do
-              if [ -d "$item" ]; then
-                name=$(basename "$item")
-                run_id=$(echo "$name" | sed 's/^attempt-//')
-                mkdir -p "runs/$run_id"
-                cp -r "$item"/* "runs/$run_id/" || true
-              elif [ -f "$item" ] && [[ "$item" == *.tar.gz ]]; then
-                python scripts/extract_attempt.py "$item" runs || true
-              fi
-            done
-          fi
+          # Processa estritamente os artefatos reais baixados
+          shopt -s nullglob
+          for item in incoming/*; do
+            if [ -d "$item" ]; then
+              name=$(basename "$item")
+              run_id=$(echo "$name" | sed 's/^attempt-//')
+              echo "Processando diretório de tentativa real: $item (run_id: $run_id)"
+              mkdir -p "runs/$run_id"
+              cp -r "$item"/* "runs/$run_id/" || true
+            elif [ -f "$item" ] && [[ "$item" == *.tar.gz ]]; then
+              python scripts/extract_attempt.py "$item" runs || true
+            fi
+          done
 
-          echo "Conteúdo de runs/:"
+          echo "Conteúdo extraído em runs/:"
           ls -la runs/
 
+          # Obriga o container do Grader a avaliar os arquivos reais
           for manifest in runs/*/manifest.json; do
             [ -f "$manifest" ] || continue
             run_id=$(basename "$(dirname "$manifest")")
+            echo "Avaliando estritamente a evidência real: $run_id"
             
             mkdir -p "isolated-runs/$run_id" "evaluated/$run_id"
-            cp -r "runs/$run_id"/* "isolated-runs/$run_id/" || true
+            cp -r "runs/$run_id"/* "isolated-runs/$run_id/"
             
             docker run --rm \
               --network none \
@@ -117,23 +94,15 @@ jobs:
               --user "$(id -u):$(id -g)" \
               --volume "$PWD/isolated-runs:/runs:rw" \
               "mea-eb5-private-grader:${GITHUB_SHA}" \
-              grade "$run_id" --runs-dir /runs --challenges-dir /app/challenges || true
+              grade "$run_id" --runs-dir /runs --challenges-dir /app/challenges
               
-            if [ -f "isolated-runs/$run_id/manifest.json" ]; then
-              cp "isolated-runs/$run_id/manifest.json" "evaluated/$run_id/manifest.json"
-            else
-              cp "runs/$run_id/manifest.json" "evaluated/$run_id/manifest.json" || true
-            fi
-
-            if [ -f "isolated-runs/$run_id/score.json" ]; then
-              cp "isolated-runs/$run_id/score.json" "evaluated/$run_id/score.json"
-            else
-              echo '{"status": "PASSED", "grader_provenance": "INDEPENDENT", "score": 1.0}' > "evaluated/$run_id/score.json"
-            fi
+            cp "isolated-runs/$run_id/manifest.json" "evaluated/$run_id/manifest.json"
+            cp "isolated-runs/$run_id/score.json" "evaluated/$run_id/score.json"
           done
           
           echo "Conteúdo final de evaluated/:"
           ls -la evaluated/
+
       - name: Upload evaluated public-safe bundle
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
         with:
