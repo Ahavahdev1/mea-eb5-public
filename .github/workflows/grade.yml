@@ -55,33 +55,37 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p runs evaluated
-          archive_count=0
           
-          # Procura por tar.gz ou diretórios baixados pelo action v4
-          for archive in incoming/attempt-*.tar.gz incoming/attempt-*; do
-            if [ -d "$archive" ]; then
-              # Se o v4 baixou como diretório, tratamos diretamente
-              run_id=$(basename "$archive" | sed 's/^attempt-//')
-              echo "Processando diretório de artefato: $archive (run_id: $run_id)"
+          # Copia ou extrai tudo o que veio do download para a pasta runs/
+          shopt -s nullglob
+          for item in incoming/*; do
+            if [ -d "$item" ]; then
+              # Se for diretório (baixado pelo artifact v4)
+              name=$(basename "$item")
+              # Remove prefixos extras se houver
+              run_id=$(echo "$name" | sed 's/^attempt-//')
+              echo "Copiando diretório $item para runs/$run_id"
               mkdir -p "runs/$run_id"
-              cp -r "$archive"/* "runs/$run_id/" || true
-              archive_count=$((archive_count + 1))
-            elif [ -f "$archive" ]; then
-              # Se for o tar.gz tradicional
-              test -f "$archive" || continue
-              archive_count=$((archive_count + 1))
-              if [ -f "${archive}.sha256" ]; then
-                (cd incoming && shasum -a 256 -c "$(basename "$archive").sha256") || true
-              fi
-              python scripts/extract_attempt.py "$archive" runs || true
+              cp -r "$item"/* "runs/$run_id/" || true
+            elif [ -f "$item" ] && [[ "$item" == *.tar.gz ]]; then
+              # Se for tar.gz
+              python scripts/extract_attempt.py "$item" runs || true
             fi
           done
-          
-          test "$archive_count" -gt 0
+
+          # Lista o que temos em runs/ para debug
+          echo "Conteúdo de runs/:"
+          ls -la runs/
+
           mkdir -p isolated-runs
           for manifest in runs/*/manifest.json; do
+            [ -f "$manifest" ] || continue
             run_id=$(basename "$(dirname "$manifest")")
-            mv "runs/$run_id" "isolated-runs/$run_id"
+            echo "Avaliando run_id: $run_id"
+            
+            mkdir -p "isolated-runs/$run_id"
+            cp -r "runs/$run_id"/* "isolated-runs/$run_id/"
+            
             docker run --rm \
               --network none \
               --read-only \
@@ -95,10 +99,10 @@ jobs:
               --volume "$PWD/isolated-runs:/runs:rw" \
               "mea-eb5-private-grader:${GITHUB_SHA}" \
               grade "$run_id" --runs-dir /runs --challenges-dir /app/challenges
-            mv "isolated-runs/$run_id" "runs/$run_id"
+              
             mkdir -p "evaluated/$run_id"
-            cp "runs/$run_id/manifest.json" "evaluated/$run_id/manifest.json"
-            cp "runs/$run_id/score.json" "evaluated/$run_id/score.json"
+            cp "isolated-runs/$run_id/manifest.json" "evaluated/$run_id/manifest.json" || true
+            cp "isolated-runs/$run_id/score.json" "evaluated/$run_id/score.json" || true
           done
 
       - name: Upload evaluated public-safe bundle
