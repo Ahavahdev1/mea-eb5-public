@@ -47,7 +47,6 @@ jobs:
           repository: ${{ inputs.source_repository }}
           run-id: ${{ inputs.source_run_id }}
           github-token: ${{ secrets.ATTEMPT_READ_TOKEN }}
-          pattern: attempt-*
           merge-multiple: true
           path: incoming
 
